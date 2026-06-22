@@ -1,0 +1,15 @@
+{
+  "name": "shared-memory-runtime",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Auto-inject persistent Claude-style memory into Codex (hook) and OpenCode (plugin) at session start and per turn",
+  "type": "module",
+  "bin": {
+    "shared-memory-install": "./install.mjs"
+  },
+  "scripts": {
+    "install-runtime": "node ./install.mjs"
+  },
+  "keywords": ["claude", "codex", "opencode", "memory", "hook", "plugin", "recall"],
+  "license": "MIT"
+}
