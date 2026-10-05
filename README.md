@@ -1,93 +1,61 @@
-# shared-memory-runtime
+# shared-memory-runtime v2
 
-Auto-inject Claude-style persistent memory into **Codex** (lifecycle hook) and
-**OpenCode** (plugin), at session start and per turn — the runtime counterpart to
-[`claude-to-codex-memory-sync`](../claude-to-codex-memory-sync) (which wires the
-static `AGENTS.md`/store sharing).
+A tool-neutral persistent-memory runtime for Codex, Claude Code, and OpenCode.
 
-Where the sync repo makes the three tools *share one memory store*, this repo
-makes Codex and OpenCode *recall it automatically* — the equivalent of Claude's
-SessionStart `MEMORY.md` injection plus relevance-based recall.
+## Storage
 
-## What it injects
+Version 2 has exactly two scopes:
 
-Two tiers, mirroring Claude:
+    ~/.local/share/agent-memory/global/  global preferences and machine facts
+    <project>/.agent-memory/             repository-specific facts
 
-1. **Session start** — standing memory instructions + the live `MEMORY.md` index.
-2. **Per user turn** — the fact files whose index "hook" best matches the prompt
-   (dependency-free keyword overlap over the same `description`/hook signal Claude
-   ranks on).
+Each store contains `MEMORY.md`, `PROTOCOL.md`, `SCOPE.md`, and one Markdown
+file per fact. Project facts override same-title global facts. Nested memory
+stores are not loaded.
 
-Both read the per-project Claude store at
-`~/.claude/projects/<encoded-cwd>/memory/` (walking up from cwd). If a project
-has no store, nothing is injected (set `SHARED_MEMORY_ALWAYS=1` to inject the
-standing instructions everywhere anyway).
+Project stores are added to `.git/info/exclude`, keeping them local without
+editing the repository's committed `.gitignore`.
 
-## Layout
+## Initialize
 
-```
-lib/memory.mjs            shared core (resolve store, read index, rank facts)
-codex/inject-memory.mjs   Codex hook: reads event JSON on stdin, prints additionalContext
-opencode/memory-plugin.js OpenCode plugin: pushes memory onto the system prompt
-install.mjs               wires both tools (idempotent)
-```
+    node bin/shared-memory.mjs init global
+    node bin/shared-memory.mjs init project --project /path/to/repo
+    node bin/shared-memory.mjs status --project /path/to/repo
 
-The Codex hook and OpenCode plugin both import `lib/memory.mjs`, so recall is
-identical across tools.
+Import an existing Claude Code project-memory store non-destructively:
 
-## Install
+    node bin/shared-memory.mjs import claude --project /path/to/repo
 
-```bash
-node install.mjs            # both tools   (flags: --no-codex / --no-opencode)
-```
+The importer copies indexed facts, preserves the source, and aborts before
+writing if it finds conflicting titles or file contents.
 
-This writes `~/.codex/hooks.json` (SessionStart + UserPromptSubmit → the hook) and
-adds the plugin to `~/.config/opencode/opencode.json` (plus
-`permission.external_directory: "allow"`, needed because the store lives outside
-the project).
+## Install adapters
 
-### Codex — REQUIRES a one-time `/hooks` enable ⚠️
+Review the proposed targets without writing:
 
-Codex does **not** run a newly-added hook until you review and enable it
-interactively:
+    node install.mjs --dry-run
 
-1. Run `codex` in any project that has a memory store.
-2. Type `/hooks`, select the `inject-memory` hook, and **enable + trust** it.
+Install all three adapters:
 
-After that it fires on every session/turn. `--dangerously-bypass-hook-trust`
-skips the trust *review* for headless `codex exec`, but does **not** substitute
-for the one-time enable. (This bit us for a long time during development: the hook
-config is correct, but the command silently never runs until enabled.)
+    node install.mjs
 
-### OpenCode — auto-loaded, watch for stray plugins
+Useful flags:
 
-OpenCode auto-loads every `*.ts`/`*.js` in `~/.config/opencode/plugin/` **and**
-the plugins listed in `opencode.json`'s `plugin` array. A single broken plugin in
-that directory (e.g. one that pushes a message `part` with a non-`prt_` id) makes
-the OpenCode server reject *every* plugin-loading run with
-`invalid user part before save`. If OpenCode breaks after adding plugins, audit
-`~/.config/opencode/plugin/` for debris. `opencode run --pure` disables all
-plugins and is a good isolation test.
+    --no-codex
+    --no-claude
+    --no-opencode
+    --opencode-v2
+    --disable-claude-auto-memory
+    --home /isolated/test/home
+    --repo /absolute/runtime/path
 
-## Verify
+Codex uses `SessionStart`, `UserPromptSubmit`, and a compaction marker fallback.
+Claude Code uses `SessionStart` and `UserPromptSubmit`. OpenCode V1 and V2 have
+separate adapters because their plugin APIs differ.
 
-In a project with a memory store, ask the agent something only present in memory,
-with tools off — it should answer from the injected context:
+## Test in isolation
 
-```bash
-# OpenCode (verified working):
-opencode run "Without using tools, answer only from context: <a fact in memory>"
-```
+    npm test
 
-## Debug
-
-Set `SHARED_MEMORY_DEBUG=/path/to/log` and both the hook and plugin append a line
-per invocation (event, cwd, whether output was produced, throws). Invaluable for
-confirming the tool is actually calling the hook/plugin.
-
-## Status
-
-Both verified end-to-end (injected memory reached the model with tools off):
-
-- **OpenCode plugin** — works out of the box once installed.
-- **Codex hook** — works after the one-time `/hooks` enable described above.
+Tests create temporary homes and repositories. They do not write user-level
+Codex, Claude Code, or OpenCode configuration.

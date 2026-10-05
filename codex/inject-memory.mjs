@@ -1,62 +1,41 @@
 #!/usr/bin/env node
-
-// Codex lifecycle hook: injects persistent memory into the session context.
-//
-// Codex pipes the event JSON on stdin and reads our stdout back as developer
-// context (via hookSpecificOutput.additionalContext). We handle two events:
-//   SessionStart      -> standing memory instructions + the live MEMORY.md index
-//   UserPromptSubmit  -> the facts most relevant to this prompt (auto-recall)
-//
-// Registered from ~/.codex/hooks.json (see codex/hooks.json). Trust it once via
-// the /hooks TUI command, or run headless with --dangerously-bypass-hook-trust.
-
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { sessionStartContext, promptContext } from '../lib/memory.mjs'
 
-async function readStdin() {
-  let data = ''
-  process.stdin.setEncoding('utf8')
-  for await (const chunk of process.stdin) data += chunk
-  return data
+function markerPath(id) {
+  return path.join(os.tmpdir(), `agent-memory-compact-${String(id).replace(/[^a-zA-Z0-9_-]/g, '_')}`)
 }
 
 async function main() {
-  let input = {}
-  try {
-    input = JSON.parse((await readStdin()) || '{}')
-  } catch {
-    process.exit(0) // malformed input: stay silent, don't disrupt the session
-  }
-
+  let raw = ''
+  for await (const part of process.stdin) raw += part
+  let input
+  try { input = JSON.parse(raw) } catch { return }
   const event = input.hook_event_name
   const cwd = input.cwd || process.cwd()
+  const marker = markerPath(input.session_id || cwd)
   let context = ''
-
+  if (event === 'PostCompact') {
+    fs.writeFileSync(marker, '1')
+    return
+  }
   if (event === 'SessionStart') {
     context = sessionStartContext(cwd)
-  } else if (event === 'UserPromptSubmit') {
-    context = promptContext(cwd, input.prompt || '')
+    if (input.source === 'compact' && fs.existsSync(marker)) fs.unlinkSync(marker)
   }
-
-  if (process.env.SHARED_MEMORY_DEBUG) {
-    try {
-      const { appendFileSync } = await import('node:fs')
-      appendFileSync(
-        process.env.SHARED_MEMORY_DEBUG,
-        `[fired] event=${event} cwd=${cwd} outputLen=${context.length}\n`,
-      )
-    } catch {
-      /* debug logging best-effort */
-    }
+  if (event === 'UserPromptSubmit') {
+    const pointer = promptContext(cwd, input.prompt || '')
+    if (fs.existsSync(marker)) {
+      fs.unlinkSync(marker)
+      const base = sessionStartContext(cwd)
+      context = [base, pointer].filter(Boolean).join('\n\n')
+    } else context = pointer
   }
-
-  if (context) {
-    process.stdout.write(
-      JSON.stringify({
-        hookSpecificOutput: { hookEventName: event, additionalContext: context },
-      }),
-    )
-  }
-  process.exit(0)
+  if (context) process.stdout.write(JSON.stringify({
+    hookSpecificOutput: { hookEventName: event, additionalContext: context },
+  }))
 }
 
-main().catch(() => process.exit(0))
+main().catch(() => {})
