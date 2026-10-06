@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   globalDir,
-  importClaude,
+  copyClaudeMemory,
   initGlobal,
   initProject,
   promptContext,
@@ -68,17 +68,51 @@ test('global and project scopes initialize, resolve, and prefer project facts', 
     { dir: project.dir, initialized: true })
 })
 
-test('Claude import copies indexed facts and preserves the source', () => {
+test('Claude bootstrap copies the whole store once and preserves the source', () => {
+  const fx = fixture()
+  const encoded = path.resolve(fx.repo).replace(/[^a-zA-Z0-9]/g, '-')
+  const source = path.join(fx.home, '.claude', 'projects', encoded, 'memory')
+  fs.mkdirSync(path.join(source, 'nested'), { recursive: true })
+  fs.writeFileSync(path.join(source, 'MEMORY.md'), [
+    '- [Legacy fact](legacy.md) — imported legacy target',
+    '- [Project reference](.gpu-brain/finding.md) — external project reference',
+    '',
+  ].join('\n'))
+  fs.writeFileSync(path.join(source, 'legacy.md'), 'legacy remains here\n')
+  fs.writeFileSync(path.join(source, 'unindexed.md'), 'copy this too\n')
+  fs.writeFileSync(path.join(source, 'nested', 'note.md'), 'nested fact\n')
+  const result = copyClaudeMemory(fx.repo, { home: fx.home })
+  assert.equal(result.copied, 4)
+  assert.equal(fs.readFileSync(path.join(result.destination, 'legacy.md'), 'utf8'), 'legacy remains here\n')
+  assert.equal(fs.readFileSync(path.join(result.destination, 'unindexed.md'), 'utf8'), 'copy this too\n')
+  assert.equal(fs.readFileSync(path.join(result.destination, 'nested', 'note.md'), 'utf8'), 'nested fact\n')
+  assert.equal(fs.readFileSync(path.join(result.destination, 'MEMORY.md'), 'utf8'),
+    fs.readFileSync(path.join(source, 'MEMORY.md'), 'utf8'))
+  assert.equal(fs.readFileSync(path.join(source, 'legacy.md'), 'utf8'), 'legacy remains here\n')
+  assert.throws(() => copyClaudeMemory(fx.repo, { home: fx.home }), /refusing to merge/)
+})
+
+test('project init CLI requires an explicit choice without a TTY', () => {
   const fx = fixture()
   const encoded = path.resolve(fx.repo).replace(/[^a-zA-Z0-9]/g, '-')
   const source = path.join(fx.home, '.claude', 'projects', encoded, 'memory')
   fs.mkdirSync(source, { recursive: true })
-  fs.writeFileSync(path.join(source, 'MEMORY.md'), '- [Legacy fact](legacy.md) — imported legacy target\n')
-  fs.writeFileSync(path.join(source, 'legacy.md'), 'legacy remains here\n')
-  const result = importClaude(fx.repo, { home: fx.home })
-  assert.equal(result.copied, 1)
-  assert.equal(fs.readFileSync(path.join(result.destination, 'legacy.md'), 'utf8'), 'legacy remains here\n')
-  assert.equal(fs.readFileSync(path.join(source, 'legacy.md'), 'utf8'), 'legacy remains here\n')
+  fs.writeFileSync(path.join(source, 'MEMORY.md'), '# Legacy memory\n')
+  fs.writeFileSync(path.join(source, 'unindexed.md'), 'whole-store copy\n')
+  const cli = path.join(runtime, 'bin', 'shared-memory.mjs')
+
+  const undecided = spawnSync(process.execPath,
+    [cli, 'init', 'project', '--project', fx.repo, '--home', fx.home], { encoding: 'utf8' })
+  assert.equal(undecided.status, 1)
+  assert.match(undecided.stderr, /use --from-claude or --fresh/)
+  assert.equal(fs.existsSync(path.join(fx.repo, '.agent-memory')), false)
+
+  const copied = spawnSync(process.execPath,
+    [cli, 'init', 'project', '--project', fx.repo, '--home', fx.home, '--from-claude'],
+    { encoding: 'utf8' })
+  assert.equal(copied.status, 0)
+  assert.equal(fs.readFileSync(path.join(fx.repo, '.agent-memory', 'unindexed.md'), 'utf8'),
+    'whole-store copy\n')
 })
 
 test('Codex and Claude scripts return model-visible context from isolated stores', () => {

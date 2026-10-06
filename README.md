@@ -18,16 +18,17 @@ editing the repository's committed `.gitignore`.
 
 ## Initialize
 
-    node bin/shared-memory.mjs init global
-    node bin/shared-memory.mjs init project --project /path/to/repo
-    node bin/shared-memory.mjs status --project /path/to/repo
+    shared-memory init global
+    shared-memory init project --project /path/to/repo
+    shared-memory status --project /path/to/repo
 
-Import an existing Claude Code project-memory store non-destructively:
+On the first project initialization, the CLI checks for an existing Claude Code
+project-memory directory. If one exists, it asks whether to copy that directory
+wholesale into `.agent-memory`. The source is preserved and merging is never
+attempted. For non-interactive use, choose explicitly:
 
-    node bin/shared-memory.mjs import claude --project /path/to/repo
-
-The importer copies indexed facts, preserves the source, and aborts before
-writing if it finds conflicting titles or file contents.
+    shared-memory init project --project /path/to/repo --from-claude
+    shared-memory init project --project /path/to/repo --fresh
 
 ## Install adapters
 
