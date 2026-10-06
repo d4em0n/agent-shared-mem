@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 const DEFAULT_REPO = path.dirname(fileURLToPath(import.meta.url))
 
@@ -124,7 +124,16 @@ export function runInstaller(argv = process.argv.slice(2)) {
   return result
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+function isMain() {
+  if (!process.argv[1]) return false
+  try {
+    return fs.realpathSync(fileURLToPath(import.meta.url)) === fs.realpathSync(process.argv[1])
+  } catch {
+    return false
+  }
+}
+
+if (isMain()) {
   try { process.stdout.write(JSON.stringify(runInstaller(), null, 2) + '\n') }
   catch (error) {
     process.stderr.write(error.message + '\n')

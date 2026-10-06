@@ -181,4 +181,14 @@ test('installer is idempotent and writes only to an explicit fake home', () => {
   const dryHome = path.join(fx.base, 'dry-home')
   runInstaller(['--home', dryHome, '--repo', runtime, '--dry-run'])
   assert.equal(fs.existsSync(dryHome), false)
+
+  const binDir = path.join(fx.base, 'bin')
+  fs.mkdirSync(binDir)
+  const linkedInstaller = path.join(binDir, 'shared-memory-install')
+  fs.symlinkSync(path.join(runtime, 'install.mjs'), linkedInstaller)
+  const linkedRun = spawnSync(linkedInstaller,
+    ['--home', dryHome, '--repo', runtime, '--dry-run'], { encoding: 'utf8' })
+  assert.equal(linkedRun.status, 0)
+  assert.equal(JSON.parse(linkedRun.stdout).dryRun, true)
+  assert.equal(fs.existsSync(dryHome), false)
 })
