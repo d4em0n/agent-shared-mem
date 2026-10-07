@@ -64,8 +64,84 @@ test('global and project scopes initialize, resolve, and prefer project facts', 
   })
   assert.match(recall, /\[project\] Build workflow/)
   assert.doesNotMatch(recall, /\[global\] Build workflow/)
-  assert.deepEqual(status(nested, { home: fx.home, dataHome: fx.dataHome }).project,
-    { dir: project.dir, initialized: true })
+  const projectStatus = status(nested, { home: fx.home, dataHome: fx.dataHome }).project
+  assert.equal(projectStatus.dir, project.dir)
+  assert.equal(projectStatus.initialized, true)
+  assert.equal(projectStatus.index.health, 'ok')
+  assert.equal(projectStatus.index.facts, 1)
+})
+
+test('nested indexes are searchable while only the root index is loaded at session start', () => {
+  const fx = fixture()
+  const project = initProject(fx.repo)
+  fs.appendFileSync(path.join(project.dir, 'MEMORY.md'),
+    '- [Mali recovery index](INDEX-mali-re.md) — pixel mali reverse engineering and BNDB recovery\n')
+  fs.writeFileSync(path.join(project.dir, 'INDEX-mali-re.md'),
+    '# Mali recovery\n\n- [Dependency event model](mali-deps.md) — cdeps and cmar event structures\n')
+  fs.writeFileSync(path.join(project.dir, 'mali-deps.md'), [
+    '---',
+    'name: mali-deps',
+    'description: Recovered Mali dependency and event structures.',
+    'metadata:',
+    '  type: project',
+    '---',
+    '',
+    'Durable summary with a link to detailed project evidence.',
+    '',
+  ].join('\n'))
+
+  const session = sessionStartContext(fx.repo, { home: fx.home, dataHome: fx.dataHome })
+  assert.match(session, /Mali recovery index/)
+  assert.doesNotMatch(session, /Dependency event model/)
+  assert.match(session, /does not require an explicit user\s+request/)
+
+  const recall = promptContext(fx.repo, 'continue the cdeps cmar event recovery', {
+    home: fx.home, dataHome: fx.dataHome,
+  })
+  assert.match(recall, /Dependency event model/)
+  assert.match(recall, /mali-deps\.md/)
+  assert.match(recall, /maintenance is proactive/)
+
+  const projectStatus = status(fx.repo, { home: fx.home, dataHome: fx.dataHome }).project
+  assert.equal(projectStatus.index.nestedIndexes, 1)
+  assert.equal(projectStatus.index.facts, 1)
+  assert.deepEqual(projectStatus.index.issues, [])
+})
+
+test('index health warns before oversized content and rejects external index targets', () => {
+  const fx = fixture()
+  const project = initProject(fx.repo)
+  fs.appendFileSync(path.join(project.dir, 'MEMORY.md'), [
+    '- [External detail](../.gpu-brain/detail.md) — invalid direct external pointer',
+    '- [Long topic](long.md) — ' + 'durable '.repeat(20),
+    '',
+  ].join('\n'))
+  fs.writeFileSync(path.join(project.dir, 'long.md'), 'fact body\n')
+  fs.writeFileSync(path.join(project.dir, 'orphan.md'), 'unindexed fact\n')
+  const thresholds = {
+    home: fx.home,
+    dataHome: fx.dataHome,
+    indexWarnBytes: 64,
+    indexMaxBytes: 96,
+    contextWarnBytes: 128,
+    contextMaxBytes: 160,
+  }
+
+  const session = sessionStartContext(fx.repo, thresholds)
+  const warningAt = session.indexOf('## Shared-memory index maintenance required')
+  const indexAt = session.indexOf('## project memory:')
+  assert.ok(warningAt >= 0 && warningAt < indexAt)
+  assert.match(session, /Combined session-start memory context/)
+
+  const result = status(fx.repo, thresholds)
+  assert.equal(result.project.index.health, 'compaction-required')
+  assert.deepEqual(result.project.index.issues.map((issue) => issue.code),
+    ['outside-store-target', 'unindexed-fact'])
+  assert.equal(result.context.health, 'compaction-required')
+
+  const recall = promptContext(fx.repo, 'external detail', thresholds)
+  assert.match(recall, /Shared-memory index maintenance required/)
+  assert.doesNotMatch(recall, /Possibly relevant memory/)
 })
 
 test('Claude bootstrap copies the whole store once and preserves the source', () => {
