@@ -1,6 +1,7 @@
 # shared-memory-runtime v2
 
-A tool-neutral persistent-memory runtime for Codex, Claude Code, and OpenCode.
+A tool-neutral persistent-memory runtime for Codex, Claude Code, OpenCode, and
+Hermes Agent.
 
 ## Storage
 
@@ -73,9 +74,36 @@ Useful flags:
     --home /isolated/test/home
     --repo /absolute/runtime/path
 
+Hermes is opt-in so an existing Hermes profile is not created or changed merely
+by installing the original three adapters:
+
+    shared-memory-install --hermes --dry-run
+    shared-memory-install --hermes
+
+The Hermes installer writes only
+`$HERMES_HOME/plugins/shared-memory/` (default
+`~/.hermes/plugins/shared-memory/`). It does not edit `config.yaml` or any other
+plugin. Activate it in the intended Hermes profile:
+
+```yaml
+memory:
+  provider: shared-memory
+  memory_enabled: false
+  user_profile_enabled: false
+```
+
+Use `--hermes-home /path/to/profile/home` to install for a non-default profile
+home. Do not disable the whole `memory` toolset: Hermes uses that broader gate
+for external providers too.
+
 Codex uses `SessionStart`, `UserPromptSubmit`, and a compaction marker fallback.
 Claude Code uses `SessionStart` and `UserPromptSubmit`. OpenCode V1 and V2 have
 separate adapters because their plugin APIs differ.
+
+Hermes uses its native `MemoryProvider`: root indexes enter the stable system
+prompt, prompt-specific nested-index pointers enter the current user turn, and
+the root context is rebuilt at Hermes compression boundaries. The provider does
+not ingest full transcripts or expose a competing generic memory tool.
 
 ## Test in isolation
 

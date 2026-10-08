@@ -257,6 +257,101 @@ test('OpenCode V1 and V2 adapters inject the same isolated memory', async () => 
   assert.match(v2Event.system.map((part) => part.text).join('\n'), /browser\.md/)
 })
 
+test('Hermes JSON bridge and MemoryProvider expose the shared core', () => {
+  const fx = fixture()
+  const project = initProject(fx.repo)
+  addFact(project.dir, 'Hermes target', 'hermes-target.md',
+    'hermes adapter target identity', 'Hermes shared-memory fact')
+  const env = { ...process.env, AGENT_MEMORY_HOME: fx.home, AGENT_MEMORY_DATA_HOME: fx.dataHome }
+  const bridge = path.join(runtime, 'hermes', 'context.mjs')
+
+  const bridgeRun = spawnSync(process.execPath, [bridge], {
+    input: JSON.stringify({
+      action: 'prompt', cwd: fx.repo, prompt: 'verify hermes adapter target identity',
+    }),
+    encoding: 'utf8',
+    env,
+  })
+  assert.equal(bridgeRun.status, 0)
+  assert.match(JSON.parse(bridgeRun.stdout).context, /hermes-target\.md/)
+
+  const installArgs = [
+    '--home', fx.home,
+    '--repo', runtime,
+    '--hermes',
+    '--no-codex',
+    '--no-claude',
+    '--no-opencode',
+  ]
+  const first = runInstaller(installArgs)
+  assert.equal(first.hermes.changed, true)
+  const second = runInstaller(installArgs)
+  assert.equal(second.hermes.changed, false)
+  const providerDir = path.join(fx.home, '.hermes', 'plugins', 'shared-memory')
+  const runtimeConfig = JSON.parse(fs.readFileSync(path.join(providerDir, 'runtime.json')))
+  assert.equal(runtimeConfig.bridge, bridge)
+  assert.equal(runtimeConfig.node, process.execPath)
+
+  const harness = [
+    'import importlib.util, json, sys, types',
+    'plugin, cwd = sys.argv[1], sys.argv[2]',
+    'agent = types.ModuleType("agent")',
+    'memory_provider = types.ModuleType("agent.memory_provider")',
+    'class MemoryProvider: pass',
+    'class RecallStatus:',
+    '    def __init__(self, provider_label, count, glyph="brain"):',
+    '        self.provider_label, self.count, self.glyph = provider_label, count, glyph',
+    'memory_provider.MemoryProvider = MemoryProvider',
+    'memory_provider.RecallStatus = RecallStatus',
+    'sys.modules["agent"] = agent',
+    'sys.modules["agent.memory_provider"] = memory_provider',
+    'spec = importlib.util.spec_from_file_location("shared_memory_provider", plugin + "/__init__.py")',
+    'module = importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(module)',
+    'provider = module.SharedMemoryProvider()',
+    'provider.initialize("test-session", cwd=cwd)',
+    'start = provider.system_prompt_block()',
+    'recall = provider.prefetch("verify hermes adapter target identity")',
+    'status = provider.recall_status()',
+    'print(json.dumps({"available": provider.is_available(), "start": start, "recall": recall,',
+    '                  "count": status.count if status else 0, "compress": provider.on_pre_compress([])}))',
+  ].join('\n')
+  const providerRun = spawnSync('python3', ['-c', harness, providerDir, fx.repo], {
+    encoding: 'utf8',
+    env,
+  })
+  assert.equal(providerRun.status, 0, providerRun.stderr)
+  const provider = JSON.parse(providerRun.stdout)
+  assert.equal(provider.available, true)
+  assert.match(provider.start, /Hermes target/)
+  assert.match(provider.recall, /hermes-target\.md/)
+  assert.equal(provider.count, 1)
+  assert.match(provider.compress, /Do not claim a fact was saved/)
+})
+
+test('Hermes install dry-run is isolated and refuses an unmanaged target', () => {
+  const fx = fixture()
+  const hermesHome = path.join(fx.base, 'dry-hermes')
+  const args = [
+    '--home', fx.home,
+    '--repo', runtime,
+    '--hermes-home', hermesHome,
+    '--hermes',
+    '--no-codex',
+    '--no-claude',
+    '--no-opencode',
+    '--dry-run',
+  ]
+  const result = runInstaller(args)
+  assert.equal(result.hermes.changed, true)
+  assert.equal(fs.existsSync(hermesHome), false)
+
+  const target = path.join(hermesHome, 'plugins', 'shared-memory')
+  fs.mkdirSync(target, { recursive: true })
+  fs.writeFileSync(path.join(target, 'plugin.yaml'), 'name: somebody-else\n')
+  assert.throws(() => runInstaller(args), /Refusing to overwrite unmanaged Hermes plugin/)
+})
+
 test('installer is idempotent and writes only to an explicit fake home', () => {
   const fx = fixture()
   fs.mkdirSync(path.join(fx.home, '.codex'), { recursive: true })

@@ -27,6 +27,17 @@ function writeJson(file, value, dryRun) {
   fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n')
 }
 
+function writeText(file, value, dryRun) {
+  if (dryRun) return
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, value)
+}
+
+function sameText(file, value) {
+  try { return fs.readFileSync(file, 'utf8') === value }
+  catch { return false }
+}
+
 function hasCommand(groups, command) {
   return groups.some((group) => (group.hooks || []).some((hook) => hook.command === command))
 }
@@ -106,8 +117,50 @@ export function installOpenCode({ home, repo, dryRun, openCodeV2 }) {
   return { file, plugin, api: useV2 ? 'v2' : 'v1', changed: !present || permissionChanged, dryRun }
 }
 
+export function installHermes({ hermesHome, repo, dryRun, node = process.execPath }) {
+  const source = path.join(repo, 'hermes', 'provider')
+  const bridge = path.join(repo, 'hermes', 'context.mjs')
+  const target = path.join(hermesHome, 'plugins', 'shared-memory')
+  if (!fs.existsSync(path.join(source, '__init__.py')) || !fs.existsSync(bridge))
+    throw new Error(`Hermes adapter source is incomplete under ${path.join(repo, 'hermes')}`)
+  if (fs.existsSync(target)) {
+    if (!fs.statSync(target).isDirectory())
+      throw new Error(`Refusing to replace non-directory Hermes plugin target ${target}`)
+    const manifest = path.join(target, 'plugin.yaml')
+    const managed = fs.existsSync(manifest) &&
+      /^name:\s*shared-memory\s*$/m.test(fs.readFileSync(manifest, 'utf8'))
+    if (!managed)
+      throw new Error(`Refusing to overwrite unmanaged Hermes plugin directory ${target}`)
+  }
+
+  const contents = new Map()
+  for (const name of ['__init__.py', 'plugin.yaml', 'README.md'])
+    contents.set(path.join(target, name), fs.readFileSync(path.join(source, name), 'utf8'))
+  contents.set(path.join(target, 'runtime.json'), JSON.stringify({
+    node: path.resolve(node),
+    bridge: path.resolve(bridge),
+  }, null, 2) + '\n')
+  const changedEntries = [...contents].filter(([file, value]) => !sameText(file, value))
+  const changedFiles = changedEntries.map(([file]) => file)
+  for (const [file, value] of changedEntries) writeText(file, value, dryRun)
+  return {
+    directory: target,
+    changed: changedFiles.length > 0,
+    changedFiles,
+    dryRun,
+    configuration: {
+      memory: {
+        provider: 'shared-memory',
+        memory_enabled: false,
+        user_profile_enabled: false,
+      },
+    },
+  }
+}
+
 export function runInstaller(argv = process.argv.slice(2)) {
-  const home = path.resolve(valueAfter(argv, '--home') || os.homedir())
+  const explicitHome = valueAfter(argv, '--home')
+  const home = path.resolve(explicitHome || os.homedir())
   const repo = path.resolve(valueAfter(argv, '--repo') || DEFAULT_REPO)
   const dryRun = argv.includes('--dry-run')
   const common = { home, repo, dryRun }
@@ -121,6 +174,15 @@ export function runInstaller(argv = process.argv.slice(2)) {
     ...common,
     openCodeV2: argv.includes('--opencode-v2'),
   })
+  if (argv.includes('--hermes')) {
+    const configuredHermesHome = valueAfter(argv, '--hermes-home') ||
+      (!explicitHome ? process.env.HERMES_HOME : null)
+    result.hermes = installHermes({
+      hermesHome: path.resolve(configuredHermesHome || path.join(home, '.hermes')),
+      repo,
+      dryRun,
+    })
+  }
   return result
 }
 
