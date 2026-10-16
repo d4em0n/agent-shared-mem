@@ -24,11 +24,20 @@ lifecycle, authority, and expected use. Agents rewrite an existing unit instead
 of appending chronology; they split only at an independent semantic boundary
 and merge entries normally recalled and maintained together.
 
+These maintenance rules apply to active `.agent-memory` stores independently
+of any vendor-managed memory feature or its write policy. Agents maintain the
+shared store proactively without waiting for an explicit user request.
+
 Facts may declare YAML `metadata.authority` as `primary`, `external`, or
-`mixed`. External and mixed facts must list authoritative artifacts in
-`metadata.sources`; primary facts, such as preferences, may be authoritative
-themselves. The complete decision and maintenance rules live in
-`PROTOCOL.md`, which is read on demand rather than injected every session.
+`mixed`. Use `external` when the fact only routes to canonical artifacts. Use
+`mixed` when the artifacts hold evidence or detail but the fact preserves an
+independently useful interpretation, applicability rule, or continuation.
+External and mixed facts must list those artifacts in `metadata.sources`;
+primary facts, such as preferences, may be authoritative themselves. Git may
+remain canonical: memory should point to relevant committed artifacts when
+future discovery matters, not duplicate their contents. The complete decision
+and maintenance rules live in `PROTOCOL.md`, which is read on demand rather
+than injected every session.
 
 Project stores are added to `.git/info/exclude`, keeping them local without
 editing the repository's committed `.gitignore`.

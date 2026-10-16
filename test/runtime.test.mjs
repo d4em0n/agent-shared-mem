@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   INSTRUCTIONS,
+  PROTOCOL,
   globalDir,
   copyClaudeMemory,
   initGlobal,
@@ -95,8 +96,18 @@ test('nested indexes are searchable while only the root index is loaded at sessi
   assert.match(session, /Mali recovery index/)
   assert.doesNotMatch(session, /Dependency event model/)
   assert.doesNotMatch(session, /For candidate parts A and B/)
-  assert.match(session, /Memory is a current\s+view, not a transcript/)
+  assert.match(session, /maintain memory as a current view, not a\s+transcript/)
+  assert.match(session, /independent of\s+vendor memory systems/)
+  assert.match(session, /without waiting for an explicit user request/)
+  assert.match(session, /do not duplicate it/)
+  assert.match(session, /Use `external` when memory only\s+routes/)
+  assert.doesNotMatch(session, /facts already in Git/)
   assert.ok(Buffer.byteLength(INSTRUCTIONS) < 1400)
+
+  assert.match(PROTOCOL, /govern active `.agent-memory` stores only/)
+  assert.match(PROTOCOL, /Source control may remain authoritative/)
+  assert.match(PROTOCOL, /Choose `external` when routing is sufficient/)
+  assert.match(PROTOCOL, /Choose `mixed` only when/)
 
   const recall = promptContext(fx.repo, 'continue the cdeps cmar event recovery', {
     home: fx.home, dataHome: fx.dataHome,
