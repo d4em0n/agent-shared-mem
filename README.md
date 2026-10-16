@@ -11,15 +11,19 @@ Version 2 has exactly two scopes:
     <project>/.agent-memory/             repository-specific facts
 
 Each store contains `MEMORY.md`, `PROTOCOL.md`, `SCOPE.md`, and one Markdown
-file per fact. Project facts override same-title global facts. A store may use
+file per fact. Project facts override same-title global facts. `PROTOCOL.md`
+is read on demand, not injected at every session. A store may use
 `INDEX-<topic>.md` files to keep the root index small; prompt recall follows
-those indexes recursively while SessionStart injects only `MEMORY.md`.
+those indexes recursively while SessionStart injects only concise runtime
+instructions and `MEMORY.md`.
 
-Index entries always point to fact files inside the memory store. A fact holds
-the concise durable result and may link to authoritative project artifacts.
-Updating another ledger or documentation tree does not replace shared-memory
-maintenance, and agents do not need an explicit user request to update this
-store when their work changes durable knowledge.
+Index entries always point to fact files inside the memory store. A fact is a
+recall map: it tells a future agent what matters, what is true, which
+authoritative file to open, and where to continue. It is not another project
+notebook. Project/reference facts list authoritative artifacts in YAML
+`metadata.sources` and link them in the body. Agents update an existing topic
+card before creating another one; a new fact is for a distinct recall trigger,
+authority, or lifecycle, never a shard of one growing notebook.
 
 Project stores are added to `.git/info/exclude`, keeping them local without
 editing the repository's committed `.gitignore`.
@@ -31,12 +35,16 @@ editing the repository's committed `.gitignore`.
     shared-memory status --project /path/to/repo
 
 `status` reports root-index bytes, nested indexes, indexed facts, invalid or
-duplicate pointers, and the estimated combined SessionStart context health.
-The runtime prepends an index-maintenance notice before an oversized index, so
-the notice remains visible even if a client truncates the index itself.
+duplicate pointers, fact-size health, missing/broken canonical sources, and the
+estimated combined SessionStart context health. The runtime prepends a
+maintenance notice before oversized content, so the notice remains visible
+even if a client truncates the index itself.
 
 Default warning thresholds are 14 KiB per root index and 16 KiB for the
-combined injected context. Index splitting is semantic and remains agent-led:
+combined injected context. Facts warn at 6 KiB and require compaction at
+10 KiB. Fact compaction keeps current truth, why/how, authority, continuation,
+and canonical KB pointers; it does not split detail into near-duplicate facts.
+Index splitting is semantic and remains agent-led:
 move coherent pointer lines into an `INDEX-<topic>.md`, leave one descriptive
 root pointer, and never move or duplicate the underlying fact files. Thresholds
 can be adjusted with:
@@ -45,6 +53,8 @@ can be adjusted with:
     AGENT_MEMORY_INDEX_MAX_BYTES
     AGENT_MEMORY_CONTEXT_WARN_BYTES
     AGENT_MEMORY_CONTEXT_MAX_BYTES
+    AGENT_MEMORY_FACT_WARN_BYTES
+    AGENT_MEMORY_FACT_MAX_BYTES
 
 On the first project initialization, the CLI checks for an existing Claude Code
 project-memory directory. If one exists, it asks whether to copy that directory

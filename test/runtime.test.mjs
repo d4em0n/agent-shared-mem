@@ -93,7 +93,7 @@ test('nested indexes are searchable while only the root index is loaded at sessi
   const session = sessionStartContext(fx.repo, { home: fx.home, dataHome: fx.dataHome })
   assert.match(session, /Mali recovery index/)
   assert.doesNotMatch(session, /Dependency event model/)
-  assert.match(session, /does not require an explicit user\s+request/)
+  assert.match(session, /Memory maintenance is proactive/)
 
   const recall = promptContext(fx.repo, 'continue the cdeps cmar event recovery', {
     home: fx.home, dataHome: fx.dataHome,
@@ -128,7 +128,7 @@ test('index health warns before oversized content and rejects external index tar
   }
 
   const session = sessionStartContext(fx.repo, thresholds)
-  const warningAt = session.indexOf('## Shared-memory index maintenance required')
+  const warningAt = session.indexOf('## Shared-memory maintenance required')
   const indexAt = session.indexOf('## project memory:')
   assert.ok(warningAt >= 0 && warningAt < indexAt)
   assert.match(session, /Combined session-start memory context/)
@@ -140,8 +140,82 @@ test('index health warns before oversized content and rejects external index tar
   assert.equal(result.context.health, 'compaction-required')
 
   const recall = promptContext(fx.repo, 'external detail', thresholds)
-  assert.match(recall, /Shared-memory index maintenance required/)
+  assert.match(recall, /Shared-memory maintenance required/)
   assert.doesNotMatch(recall, /Possibly relevant memory/)
+})
+
+test('fact health enforces routing-card size and canonical source pointers', () => {
+  const fx = fixture()
+  const project = initProject(fx.repo)
+  const kb = path.join(fx.repo, '.gpu-brain')
+  fs.mkdirSync(kb)
+  fs.writeFileSync(path.join(kb, 'evidence.md'), '# Canonical evidence\n')
+  fs.appendFileSync(path.join(project.dir, 'MEMORY.md'), [
+    '- [Oversized routed fact](routed.md) — target recovery checkpoint and authority',
+    '- [Missing-source fact](missing.md) — accumulated project investigation',
+    '- [Broken-source fact](broken.md) — stale canonical evidence pointer',
+    '',
+  ].join('\n'))
+  fs.writeFileSync(path.join(project.dir, 'routed.md'), [
+    '---',
+    'name: routed',
+    'description: Routed target checkpoint.',
+    'metadata:',
+    '  type: project',
+    '  sources:',
+    '    - ../.gpu-brain/evidence.md',
+    '---',
+    '',
+    'Current truth and continuation. ' + 'detail '.repeat(50),
+  ].join('\n'))
+  fs.writeFileSync(path.join(project.dir, 'missing.md'), [
+    '---',
+    'name: missing',
+    'description: Missing source.',
+    'metadata:',
+    '  type: project',
+    '---',
+    '',
+    'detail '.repeat(30),
+  ].join('\n'))
+  fs.writeFileSync(path.join(project.dir, 'broken.md'), [
+    '---',
+    'name: routed',
+    'description: Broken source.',
+    'metadata:',
+    '  type: reference',
+    '  sources:',
+    '    - ../.gpu-brain/missing.md',
+    '---',
+    '',
+    'Short routing card.',
+  ].join('\n'))
+  const thresholds = {
+    home: fx.home,
+    dataHome: fx.dataHome,
+    factWarnBytes: 128,
+    factMaxBytes: 256,
+  }
+
+  const result = status(fx.repo, thresholds)
+  assert.equal(result.project.facts.health, 'compaction-required')
+  assert.deepEqual(result.project.facts.oversized.map((fact) => path.basename(fact.file)),
+    ['routed.md', 'missing.md', 'broken.md'])
+  assert.deepEqual(result.project.facts.missingSources.map((fact) => path.basename(fact.file)),
+    ['missing.md'])
+  assert.deepEqual(result.project.facts.sourceIssues.map((issue) => issue.code),
+    ['missing-source'])
+  assert.deepEqual(result.project.facts.duplicateNames.map((issue) => issue.name),
+    ['routed'])
+
+  const session = sessionStartContext(fx.repo, thresholds)
+  assert.match(session, /oversized fact/)
+  assert.match(session, /without metadata\.sources/)
+  assert.match(session, /duplicate fact name/)
+  assert.match(session, /recall maps/)
+  const recall = promptContext(fx.repo, 'target recovery checkpoint authority', thresholds)
+  assert.match(recall, /Shared-memory maintenance required/)
+  assert.match(recall, /routed\.md/)
 })
 
 test('Claude bootstrap copies the whole store once and preserves the source', () => {
