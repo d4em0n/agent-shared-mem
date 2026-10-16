@@ -7,6 +7,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import {
+  INSTRUCTIONS,
   globalDir,
   copyClaudeMemory,
   initGlobal,
@@ -93,8 +94,9 @@ test('nested indexes are searchable while only the root index is loaded at sessi
   const session = sessionStartContext(fx.repo, { home: fx.home, dataHome: fx.dataHome })
   assert.match(session, /Mali recovery index/)
   assert.doesNotMatch(session, /Dependency event model/)
-  assert.doesNotMatch(session, /Aim to keep each fact below 6 KiB/)
-  assert.match(session, /Memory maintenance is proactive/)
+  assert.doesNotMatch(session, /For candidate parts A and B/)
+  assert.match(session, /Memory is a current\s+view, not a transcript/)
+  assert.ok(Buffer.byteLength(INSTRUCTIONS) < 1400)
 
   const recall = promptContext(fx.repo, 'continue the cdeps cmar event recovery', {
     home: fx.home, dataHome: fx.dataHome,
@@ -155,6 +157,7 @@ test('fact health enforces routing-card size and canonical source pointers', () 
     '- [Oversized routed fact](routed.md) — target recovery checkpoint and authority',
     '- [Missing-source fact](missing.md) — accumulated project investigation',
     '- [Broken-source fact](broken.md) — stale canonical evidence pointer',
+    '- [External small fact](external-small.md) — externally authoritative small fact',
     '',
   ].join('\n'))
   fs.writeFileSync(path.join(project.dir, 'routed.md'), [
@@ -185,11 +188,23 @@ test('fact health enforces routing-card size and canonical source pointers', () 
     'description: Broken source.',
     'metadata:',
     '  type: reference',
+    '  authority: elsewhere',
     '  sources:',
     '    - ../.gpu-brain/missing.md',
     '---',
     '',
     'Short routing card.',
+  ].join('\n'))
+  fs.writeFileSync(path.join(project.dir, 'external-small.md'), [
+    '---',
+    'name: external-small',
+    'description: Small fact with declared external authority.',
+    'metadata:',
+    '  type: project',
+    '  authority: external',
+    '---',
+    '',
+    'Short pointer missing its required source.',
   ].join('\n'))
   const thresholds = {
     home: fx.home,
@@ -201,19 +216,24 @@ test('fact health enforces routing-card size and canonical source pointers', () 
   const result = status(fx.repo, thresholds)
   assert.equal(result.project.facts.health, 'compaction-required')
   assert.deepEqual(result.project.facts.oversized.map((fact) => path.basename(fact.file)),
-    ['routed.md', 'missing.md', 'broken.md'])
+    ['routed.md', 'missing.md', 'external-small.md', 'broken.md'])
   assert.deepEqual(result.project.facts.missingSources.map((fact) => path.basename(fact.file)),
-    ['missing.md'])
+    ['missing.md', 'external-small.md'])
+  assert.deepEqual(result.project.facts.missingSources.map((fact) => fact.reason),
+    ['legacy-large-pointer', 'declared-authority'])
   assert.deepEqual(result.project.facts.sourceIssues.map((issue) => issue.code),
     ['missing-source'])
+  assert.deepEqual(result.project.facts.authorityIssues.map((issue) => issue.code),
+    ['invalid-authority'])
   assert.deepEqual(result.project.facts.duplicateNames.map((issue) => issue.name),
     ['routed'])
 
   const session = sessionStartContext(fx.repo, thresholds)
   assert.match(session, /oversized fact/)
-  assert.match(session, /without metadata\.sources/)
+  assert.match(session, /missing required metadata\.sources/)
+  assert.match(session, /invalid authority value/)
   assert.match(session, /duplicate fact name/)
-  assert.match(session, /recall maps/)
+  assert.match(session, /semantically split/)
   const recall = promptContext(fx.repo, 'target recovery checkpoint authority', thresholds)
   assert.match(recall, /Shared-memory maintenance required/)
   assert.match(recall, /routed\.md/)

@@ -17,13 +17,18 @@ is read on demand, not injected at every session. A store may use
 those indexes recursively while SessionStart injects only concise runtime
 instructions and `MEMORY.md`.
 
-Index entries always point to fact files inside the memory store. A fact is a
-recall map: it tells a future agent what matters, what is true, which
-authoritative file to open, and where to continue. It is not another project
-notebook. Project/reference facts list authoritative artifacts in YAML
-`metadata.sources` and link them in the body. Agents update an existing topic
-card before creating another one; a new fact is for a distinct recall trigger,
-authority, or lifecycle, never a shard of one growing notebook.
+Shared memory is a curated current view of durable context, not a transcript or
+event log. Index entries always point to fact files inside the memory store. A
+fact is the smallest independently useful recall unit sharing a trigger,
+lifecycle, authority, and expected use. Agents rewrite an existing unit instead
+of appending chronology; they split only at an independent semantic boundary
+and merge entries normally recalled and maintained together.
+
+Facts may declare YAML `metadata.authority` as `primary`, `external`, or
+`mixed`. External and mixed facts must list authoritative artifacts in
+`metadata.sources`; primary facts, such as preferences, may be authoritative
+themselves. The complete decision and maintenance rules live in
+`PROTOCOL.md`, which is read on demand rather than injected every session.
 
 Project stores are added to `.git/info/exclude`, keeping them local without
 editing the repository's committed `.gitignore`.
@@ -35,16 +40,17 @@ editing the repository's committed `.gitignore`.
     shared-memory status --project /path/to/repo
 
 `status` reports root-index bytes, nested indexes, indexed facts, invalid or
-duplicate pointers, fact-size health, missing/broken canonical sources, and the
-estimated combined SessionStart context health. The runtime prepends a
-maintenance notice before oversized content, so the notice remains visible
-even if a client truncates the index itself.
+duplicate pointers, fact-size health, authority/schema issues, missing/broken
+sources, and the estimated combined SessionStart context health. The runtime
+prepends a maintenance notice before oversized content, so the notice remains
+visible even if a client truncates the index itself.
 
 Default warning thresholds are 14 KiB per root index and 16 KiB for the
-combined injected context. Facts warn at 6 KiB and require compaction at
-10 KiB. Fact compaction keeps current truth, why/how, authority, continuation,
-and canonical KB pointers; it does not split detail into near-duplicate facts.
-Index splitting is semantic and remains agent-led:
+combined injected context. Facts enter review at 6 KiB and require maintenance
+resolution at 10 KiB. Size selects no automatic operation: an agent may rewrite,
+remove duplicated authoritative detail, split independent recall units, merge
+overlap, or leave unique knowledge flagged until it has a safe home. Index
+splitting is a separate navigation operation:
 move coherent pointer lines into an `INDEX-<topic>.md`, leave one descriptive
 root pointer, and never move or duplicate the underlying fact files. Thresholds
 can be adjusted with:
