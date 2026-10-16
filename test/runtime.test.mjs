@@ -93,6 +93,7 @@ test('nested indexes are searchable while only the root index is loaded at sessi
   const session = sessionStartContext(fx.repo, { home: fx.home, dataHome: fx.dataHome })
   assert.match(session, /Mali recovery index/)
   assert.doesNotMatch(session, /Dependency event model/)
+  assert.doesNotMatch(session, /Aim to keep each fact below 6 KiB/)
   assert.match(session, /Memory maintenance is proactive/)
 
   const recall = promptContext(fx.repo, 'continue the cdeps cmar event recovery', {
