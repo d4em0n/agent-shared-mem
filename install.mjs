@@ -106,7 +106,21 @@ export function installOpenCode({ home, repo, dryRun, openCodeV2 }) {
   const useV2 = openCodeV2 || Array.isArray(config.plugins)
   const key = useV2 ? 'plugins' : 'plugin'
   config[key] = Array.isArray(config[key]) ? config[key] : []
-  const plugin = path.join(repo, 'opencode', useV2 ? 'memory-plugin-v2.js' : 'memory-plugin.js')
+  // OpenCode V2 only accepts package or directory plugin paths; a bare .js file
+  // path is rejected at every server start ("configured plugin path must be a
+  // directory"), so the v2 adapter is wired through the package directory.
+  const packageDir = path.join(repo, 'opencode')
+  const legacyV2File = path.join(repo, 'opencode', 'memory-plugin-v2.js')
+  const plugin = useV2 ? packageDir : path.join(repo, 'opencode', 'memory-plugin.js')
+  let removedLegacy = 0
+  if (useV2) {
+    const before = config[key].length
+    config[key] = config[key].filter((item) => {
+      const pkg = item && typeof item === 'object' ? item.package : item
+      return pkg !== legacyV2File
+    })
+    removedLegacy = before - config[key].length
+  }
   const present = config[key].some((item) =>
     item === plugin || (item && typeof item === 'object' && item.package === plugin))
   if (!present) config[key].push(plugin)
@@ -114,7 +128,7 @@ export function installOpenCode({ home, repo, dryRun, openCodeV2 }) {
   const permissionChanged = config.permission.external_directory === undefined
   if (permissionChanged) config.permission.external_directory = 'allow'
   writeJson(file, config, dryRun)
-  return { file, plugin, api: useV2 ? 'v2' : 'v1', changed: !present || permissionChanged, dryRun }
+  return { file, plugin, api: useV2 ? 'v2' : 'v1', changed: !present || permissionChanged || removedLegacy > 0, removedLegacy, dryRun }
 }
 
 export function installHermes({ hermesHome, repo, dryRun, node = process.execPath }) {

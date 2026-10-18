@@ -1,0 +1,11 @@
+{
+  "name": "agent-shared-mem-opencode",
+  "private": true,
+  "type": "module",
+  "description": "OpenCode V2 plugin package for the shared-memory runtime",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./server": "./index.js"
+  }
+}
